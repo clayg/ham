@@ -223,18 +223,19 @@ def build_volumes(compute, servers, volume, disk_params):
     return volumes
 
 
-def clean_up(servers, disks, **kwargs):
+def clean_up(servers, volumes, **kwargs):
     # we can't just terminate because of xen/nova bug
     compute = kwargs.pop('compute')
-    for disk in disks:
-        vol = disk.manager.get(disk.id)
+    for volume in volumes:
+        vol = volume.manager.get(volume.id)
         for attachment in vol.attachments:
             compute.volumes.delete_server_volume(
-                attachment['server_id'], disk.id)
-        wait_on_status('available', disk.manager, disk, timeout=30)
-        disk.delete()
+                attachment['server_id'], volume.id)
+    wait_on_status_all('available', volume.manager, volumes, timeout=30)
     for server in servers:
         server.delete()
+    for volume in volumes:
+        volume.delete()
 
 
 @task
@@ -249,7 +250,7 @@ def _run_task(scriptname):
     put(scriptname, remotename)
     run('chmod +x %s' % remotename)
     with settings(warn_only=True):
-        result = run(remotename + ' &> /root/out')
+        result = run(remotename + ' 2>&1 | tee /root/out')
     if result.failed:
         ext = 'err'
     else:
