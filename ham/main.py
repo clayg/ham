@@ -35,7 +35,7 @@ def get_clients():
         ('region_name', 'os_region_name'),
     )
     for k, alias in multi_name_keys:
-        val = kwargs.pop(alias)
+        val = kwargs.pop(alias, None)
         if val and not kwargs[k]:
             kwargs[k] = val
     # required args
@@ -118,6 +118,7 @@ def validate_disks(volume, disks):
             raise Exception('Volume type %s is not valid %r' %
                             (disk['volume_type'], valid_type_names))
 
+
 def wait_on_status(status, manager, resource, timeout=300):
     timeout = time.time() + timeout
     while time.time() < timeout:
@@ -129,7 +130,6 @@ def wait_on_status(status, manager, resource, timeout=300):
         if time_remaining > 0:
             time.sleep(time_remaining * 0.1)
     raise Exception('timeout waiting for %r to be %s' % (resource, status))
-
 
 
 def build_servers(compute, image, flavor, hostname, count=1, timeout=300):
@@ -194,10 +194,11 @@ def wait_on_status_all(status, manager, resources, timeout=300):
             else:
                 wait_map[resource_id] = resource
         if not wait_map:
-           return resources
+            return resources
         if time_remaining > 0:
             time.sleep(time_remaining * 0.1)
-    raise Exception('timeout waiting for %r to be %s' % (wait_map.values(), status))
+    raise Exception('timeout waiting for %r to be %s' % (
+        wait_map.values(), status))
 
 
 def build_volumes(compute, servers, volume, disk_params):
@@ -281,7 +282,7 @@ def main():
     parser.add_option('-n', '--count', type='int', default=1,
                       help='number of servers to build')
     parser.add_option('-p', '--persist', action='store_true',
-                     help='servers built are permanent')
+                      help='servers built are permanent')
     parser.add_option('-d', '--disk', action='append',
                       help='add some disks to server')
     options, args = parser.parse_args()
@@ -309,7 +310,8 @@ def main():
     volumes = []
     try:
         # build servers
-        servers = build_servers(compute, image, flavor, options.hostname, count=options.count)
+        servers = build_servers(compute, image, flavor, options.hostname,
+                                count=options.count)
         # create volumes
         volumes = build_volumes(compute, servers, volume, disk_params)
         # run tasks
