@@ -4,10 +4,14 @@ import os
 from optparse import OptionParser
 import traceback
 
-from fabric.api import execute, task, env, run, put, get, parallel, settings
+from fabric import api as fab
+
+# we have mostly unknown hosts that we only talk to once...
+fab.env.disable_known_hosts = True
 
 from novaclient.shell import OpenStackComputeShell
 from novaclient.client import Client
+from novaclient.auth_plugin import discover_auth_systems, load_plugin
 
 
 class ClientBuildError(Exception):
@@ -36,7 +40,7 @@ def get_clients():
     )
     for k, alias in multi_name_keys:
         val = kwargs.pop(alias, None)
-        if val and not kwargs[k]:
+        if val and not kwargs.get(k):
             kwargs[k] = val
     # required args
     required_args= (
@@ -52,11 +56,30 @@ def get_clients():
         if not val:
             raise ClientBuildError('missing required env %s' % arg.upper())
         args.append(val)
+
+    # setup auth systems
+    os_auth_system = kwargs.pop('os_auth_system', None)
+    kwargs['auth_system'] = os_auth_system
+    if os_auth_system and os_auth_system != "keystone":
+        # Discover available auth plugins
+        discover_auth_systems()
+        kwargs['auth_plugin'] = load_plugin(os_auth_system)
+
+    # invalid args
+    invalid_args = (
+        'os_cacert',
+        'os_user_id',
+        'os_auth_token',
+        'os_tenant_id',
+    )
+    for arg in invalid_args:
+        kwargs.pop(arg, None)
     kwargs['no_cache'] = True
+
     kwargs['service_type'] = 'compute'
     compute = Client(*args, **kwargs)
-    kwargs['service_type'] = 'volume'
-    volume = Client(*args, **kwargs)
+    # XXX figure out what cinder is doing these days
+    volume = None
     return compute, volume
 
 
@@ -108,6 +131,8 @@ def validate_disks(volume, disks):
     :param volume: volume api connection
     :param disks: list of dicts describing disks
     """
+    if not disks:
+        return
     # validate disk types
     valid_types = volume.volume_types.list()
     valid_type_names = [str(vt.name) for vt in valid_types]
@@ -203,6 +228,8 @@ def wait_on_status_all(status, manager, resources, timeout=300):
 
 def build_volumes(compute, servers, volume, disk_params):
     volumes = []
+    if not disk_params:
+        return volumes
     for server in servers:
         # each server gets a set of disks
         for param in disk_params:
@@ -227,20 +254,21 @@ def build_volumes(compute, servers, volume, disk_params):
 def clean_up(servers, volumes, **kwargs):
     # we can't just terminate because of xen/nova bug
     compute = kwargs.pop('compute')
-    for volume in volumes:
-        vol = volume.manager.get(volume.id)
-        for attachment in vol.attachments:
-            compute.volumes.delete_server_volume(
-                attachment['server_id'], volume.id)
-    wait_on_status_all('available', volume.manager, volumes, timeout=30)
+    if volumes:
+        for volume in volumes:
+            vol = volume.manager.get(volume.id)
+            for attachment in vol.attachments:
+                compute.volumes.delete_server_volume(
+                    attachment['server_id'], volume.id)
+        wait_on_status_all('available', volume.manager, volumes, timeout=30)
     for server in servers:
         server.delete()
     for volume in volumes:
         volume.delete()
 
 
-@task
-@parallel
+@fab.task
+@fab.parallel
 def _run_task(scriptname):
     """
     Execute scriptname on remote host(s) and save results locally
@@ -248,28 +276,28 @@ def _run_task(scriptname):
     remotename = os.path.normpath(
         os.path.join('/root', os.path.basename(scriptname))
     )
-    put(scriptname, remotename)
-    run('chmod +x %s' % remotename)
-    with settings(warn_only=True):
-        result = run(remotename + ' 2>&1 | tee /root/out')
+    fab.put(scriptname, remotename)
+    fab.run('chmod +x %s' % remotename)
+    with fab.settings(warn_only=True):
+        result = fab.run(remotename + ' 2>&1 | tee /root/out')
     if result.failed:
         ext = 'err'
     else:
         ext = 'out'
-    remote_hostname = run('hostname').strip()
-    get('/root/out', '.'.join([scriptname, remote_hostname, ext]))
+    remote_hostname = fab.run('hostname').strip()
+    fab.get('/root/out', '.'.join([scriptname, remote_hostname, ext]))
 
 
 def run_tasks(servers, scriptname):
     # env.abort_on_prompts = True
-    env.user = 'root'
+    fab.env.user = 'root'
     for server in servers:
-        host_string = 'root@%s' % server.accessIPv4
-        env.hosts.append(host_string)
-        env.passwords[host_string] = server.adminPass
-    for host in env.hosts:
-        print host, env.passwords[host]
-    execute(_run_task, scriptname)
+        host_string = 'root@%s:22' % server.accessIPv4
+        fab.env.hosts.append(host_string)
+        fab.env.passwords[host_string] = server.adminPass
+    for host in fab.env.hosts:
+        print 'ssh %s  # %s' % (host, fab.env.passwords[host])
+    fab.execute(_run_task, scriptname)
 
 
 def main():
