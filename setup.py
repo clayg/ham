@@ -1,14 +1,13 @@
 from setuptools import setup, find_packages
-import sys, os
 
-version = '0.0'
+version = '0.1'
 
 setup(name='ham',
       version=version,
       description="launch monkies into the cloud",
       long_description="""\
 http://en.wikipedia.org/wiki/Ham_the_Chimp""",
-      classifiers=[], # Get strings from http://pypi.python.org/pypi?%3Aaction=list_classifiers
+      classifiers=[],
       keywords='',
       author='clayg',
       author_email='clay.gerrard@gmail.com',
@@ -18,7 +17,6 @@ http://en.wikipedia.org/wiki/Ham_the_Chimp""",
       include_package_data=True,
       zip_safe=False,
       install_requires=[
-          # -*- Extra requirements: -*-
           "python-novaclient",
           "fabric",
       ],
