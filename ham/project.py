@@ -2,8 +2,12 @@ import collections
 import ConfigParser
 import errno
 import os
+import shutil
+import time
 
 from ham import cloud
+
+PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT', 'ham.d')
 
 
 def safe_listdir(path):
@@ -51,8 +55,10 @@ class Server(object):
     options = {
         'image_id': ('boot', str),
         'flavor_id': ('boot', str),
+        'disk_config': ('boot', str),
         'server_id': ('instance', str),
         'admin_pass': ('instance', str),
+        'ip_address': ('instance', str),
         'status': ('cache', str),
     }
 
@@ -104,6 +110,18 @@ class Server(object):
         self.server_id = server.id
         self.save()
 
+    def refresh(self):
+        server = self.env.cloud.status(self.server_id)
+        self.ip_address = getattr(server, 'accessIPv4', '')
+        self.status = server.status
+        self.save()
+
+    def delete(self):
+        self.env.cloud.delete(self.server_id)
+
+    def __str__(self):
+        return '%s %s' % (self.server_id, self.status)
+
 
 class Environment(object):
 
@@ -132,16 +150,46 @@ class Environment(object):
         for server in self.servers.values():
             server.boot()
 
+    def refresh(self):
+        for server in self.servers.values():
+            server.refresh()
+
+    def wait(self):
+        unfinished = set(self.servers.keys())
+        while unfinished:
+            for name, server in self.servers.items():
+                if name not in unfinished:
+                    continue
+                server.refresh()
+                if server.is_active():
+                    unfinished.remove(name)
+                time.sleep(5)
+
+    def teardown(self):
+        for server in self.servers.values():
+            server.delete()
+
+    def delete(self):
+        self.refresh()
+        if self.is_active():
+            raise ProjectError('environment is still active')
+        shutil.rmtree(self.root)
+
     def is_active(self):
         return all(server.is_active() for server in self.servers.values())
 
     def deploy(self):
-        if not self._is_active():
-            raise ProjectError('build is not running')
-        pass
+        if not self.is_active():
+            raise ProjectError('environment is not active')
 
+    def create_server(self, name, **options):
+        server = Server(self, name)
+        for opt, value in options.items():
+            setattr(server, opt, value)
+        server.save()
 
-PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT', 'ham.d')
+    def __str__(self):
+        return '%s %s' % (self.root, self.is_active())
 
 
 class Project(object):
@@ -162,13 +210,9 @@ class Project(object):
 
     def create(self, name):
         env = Environment(self, name)
-        options = {
-            'image_id': 'e19a734c-c7e6-443a-830c-242209c4d65d',
-            'flavor_id': '2',
-        }
-        for node_name in ('node1', 'node2'):
-            server = Server(env, node_name)
-            for opt, value in options.items():
-                setattr(server, opt, value)
-            server.save()
-        return Environment(self, name)
+        self._create(env)
+        env = Environment(self, name)
+        return env
+
+    def _create(self, env):
+        raise NotImplementedError()

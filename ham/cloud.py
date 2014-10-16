@@ -1,6 +1,7 @@
 from novaclient.shell import OpenStackComputeShell
 from novaclient.auth_plugin import discover_auth_systems, load_plugin
 from novaclient.client import Client
+from novaclient import exceptions as exc
 
 
 class ClientBuildError(Exception):
@@ -72,10 +73,27 @@ def get_clients():
     return compute, volume
 
 
+class ServerNotFound(object):
+
+    status = 'NOT_FOUND'
+
+
 class Cloud(object):
 
     def __init__(self):
         self.compute, self.volume = get_clients()
 
-    def boot(self, name, image_id, flavor_id):
-        return self.compute.servers.create(name, image_id, flavor_id)
+    def boot(self, name, image_id, flavor_id, **options):
+        return self.compute.servers.create(name, image_id, flavor_id,
+                                           **options)
+
+    def status(self, server_id):
+        if not server_id:
+            return ServerNotFound()
+        try:
+            return self.compute.servers.get(server_id)
+        except exc.NotFound:
+            return ServerNotFound()
+
+    def delete(self, server_id):
+        self.compute.servers.delete(server_id)

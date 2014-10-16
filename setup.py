@@ -22,7 +22,7 @@ http://en.wikipedia.org/wiki/Ham_the_Chimp""",
       ],
       entry_points={
           'console_scripts': [
-              'ham = ham.main:main'
+              'ham = ham.shell:main'
           ]
       },
       )
