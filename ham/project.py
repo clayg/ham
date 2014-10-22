@@ -9,6 +9,8 @@ from ham import cloud
 
 PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT', 'ham.d')
 
+TEMPLATES = os.path.join(os.path.dirname(__file__), 'templates')
+
 
 def safe_listdir(path):
     try:
@@ -130,6 +132,7 @@ class Environment(object):
         self.name = name
         self.root = os.path.join(self.project.root_envs, self.name)
         self.root_servers = os.path.join(self.root, 'servers')
+        self.fabfile_path = os.path.join(self.root, 'fabfile.py')
         self.load()
         self.cloud = cloud.Cloud()
 
@@ -148,6 +151,8 @@ class Environment(object):
 
     def build(self):
         for server in self.servers.values():
+            if server.is_active():
+                continue
             server.boot()
 
     def refresh(self):
@@ -188,6 +193,10 @@ class Environment(object):
             setattr(server, opt, value)
         server.save()
 
+    def create_fabfile(self):
+        with open(self.fabfile_path, 'w') as f:
+            f.write(open(os.path.join(TEMPLATES, 'fabfile.py')).read())
+
     def __str__(self):
         return '%s %s' % (self.root, self.is_active())
 
@@ -208,11 +217,12 @@ class Project(object):
     def load(self):
         self._load_environments()
 
-    def create(self, name):
+    def _create(self, name, extra_args):
         env = Environment(self, name)
-        self._create(env)
+        self.create(env, extra_args)
         env = Environment(self, name)
+        env.create_fabfile()
         return env
 
-    def _create(self, env):
+    def create(self, env):
         raise NotImplementedError()

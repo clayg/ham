@@ -1,14 +1,14 @@
 """
 Launch (mostly trained) monkeys into the cloud.
 """
-from argparse import ArgumentParser
+import argparse
 import imp
 import os
 import sys
 
 import ham
 
-parser = ArgumentParser(description=__doc__.strip())
+parser = argparse.ArgumentParser(description=__doc__.strip())
 parser.add_argument('-p', '--project-dir', default=ham.project.PROJECT_ROOT,
                     help='the project config directory')
 
@@ -39,7 +39,7 @@ def project_status(project, name=None, server=None, **kwargs):
 
 
 def project_create(project, name, **kwargs):
-    env = project.create(name)
+    env = project._create(name)
     print '%s: %s' % (name, env)
 
 
@@ -49,6 +49,11 @@ def project_build(project, name, **kwargs):
 
 def project_wait(project, name, **kwargs):
     project.environments[name].wait()
+
+
+def project_fab(project, name, args, **kwargs):
+    cmd = 'fab -f %s ' % project.environments[name].fabfile_path
+    os.system(cmd + ' '.join(args))
 
 
 def project_teardown(project, name, **kwargs):
@@ -85,6 +90,13 @@ parser_wait = subparsers.add_parser(
     'wait', help='wait for an environment to finish builds')
 _add_per_build_args(parser_wait)
 parser_wait.set_defaults(func=project_wait)
+
+parser_fab = subparsers.add_parser(
+    'fab', help='fab command for environment')
+_add_per_build_args(parser_fab)
+parser_fab.set_defaults(func=project_fab)
+parser_fab.add_argument('args', nargs=argparse.REMAINDER,
+                        help='fab command line args')
 
 parser_teardown = subparsers.add_parser(
     'teardown', help='terminate the existing instances')
