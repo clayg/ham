@@ -1,3 +1,4 @@
+import sys
 import collections
 import ConfigParser
 import errno
@@ -5,7 +6,7 @@ import os
 import shutil
 import time
 
-from ham import cloud
+from ham import cloud, exc
 
 PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT', 'ham.d')
 
@@ -22,8 +23,15 @@ def safe_listdir(path):
     return dirs
 
 
-class ProjectError(Exception):
-    pass
+def safe_read(path):
+    try:
+        with open(path) as f:
+            body = f.read()
+    except EnvironmentError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        body = ''
+    return body
 
 
 def _write_config(section, options, path):
@@ -101,7 +109,7 @@ class Server(object):
 
     def boot(self):
         if self.is_active():
-            raise ProjectError('server is already running')
+            raise exc.ProjectError('server is already running')
         server = self.env.cloud.boot(
             name=self.name,
             image_id=self.image_id,
@@ -122,7 +130,7 @@ class Server(object):
         self.env.cloud.delete(self.server_id)
 
     def __str__(self):
-        return '%s %s' % (self.server_id, self.status)
+        return '   %-20s %-10s %s' % (self.name, self.status, self.server_id)
 
 
 class Environment(object):
@@ -168,6 +176,7 @@ class Environment(object):
                 server.refresh()
                 if server.is_active():
                     unfinished.remove(name)
+                sys.stderr.write('.')
                 time.sleep(5)
 
     def teardown(self):
@@ -177,7 +186,7 @@ class Environment(object):
     def delete(self):
         self.refresh()
         if self.is_active():
-            raise ProjectError('environment is still active')
+            raise exc.ProjectError('environment is still active')
         shutil.rmtree(self.root)
 
     def is_active(self):
@@ -185,7 +194,7 @@ class Environment(object):
 
     def deploy(self):
         if not self.is_active():
-            raise ProjectError('environment is not active')
+            raise exc.ProjectError('environment is not active')
 
     def create_server(self, name, **options):
         server = Server(self, name)
@@ -197,8 +206,19 @@ class Environment(object):
         with open(self.fabfile_path, 'w') as f:
             f.write(open(os.path.join(TEMPLATES, 'fabfile.py')).read())
 
+    @property
+    def status(self):
+        if self.is_active():
+            return 'ACTIVE'
+        else:
+            return 'NOT_ACTIVE'
+
     def __str__(self):
-        return '%s %s' % (self.root, self.is_active())
+        if self.name == self.project.workon_environment:
+            workon_status = '*'
+        else:
+            workon_status = ' '
+        return ' %s %-20s %-10s' % (workon_status, self.name, self.status)
 
 
 class Project(object):
@@ -206,17 +226,44 @@ class Project(object):
     def __init__(self, root=PROJECT_ROOT):
         self.root = os.path.abspath(os.path.expanduser(root))
         self.root_envs = os.path.join(self.root, 'envs')
+        self.workonfile_path = os.path.join(self.root_envs, '.workon')
         self.projectfile_path = os.path.join(self.root, 'project.py')
+        self.workon_environment = ''
         self.load()
 
     def _load_environments(self):
         self.environments = {}
         env_names = safe_listdir(self.root_envs)
         for name in env_names:
+            if name.startswith('.'):
+                continue
             self.environments[name] = Environment(self, name)
+
+    def get_environment(self, name):
+        key = name or self.workon_environment
+        if not key:
+            raise exc.ProjectLookupError('no environment specified!')
+        try:
+            return self.environments[key]
+        except KeyError:
+            raise exc.ProjectLookupError('unknown environment %r' % key)
+
+    def workon(self, name):
+        try:
+            os.makedirs(self.root_envs)
+        except EnvironmentError as e:
+            if e.errno != errno.EEXIST:
+                raise
+        with open(self.workonfile_path, 'w') as f:
+            f.write(name)
 
     def load(self):
         self._load_environments()
+        workon = safe_read(self.workonfile_path).strip()
+        if workon not in self.environments:
+            workon = ''
+            self.workon(workon)
+        self.workon_environment = workon
 
     def init(self):
         try:
@@ -228,6 +275,8 @@ class Project(object):
             f.write(open(os.path.join(TEMPLATES, 'project.py')).read())
 
     def _create(self, name, extra_args):
+        if name.startswith('.'):
+            raise exc.ProjectError("Environment names can't start with a .")
         env = Environment(self, name)
         self.create(env, extra_args)
         env = Environment(self, name)
