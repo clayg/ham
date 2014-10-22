@@ -38,8 +38,12 @@ def project_status(project, name=None, server=None, **kwargs):
         print '%s: %s' % (name, env)
 
 
-def project_create(project, name, **kwargs):
-    env = project._create(name)
+def project_init(project_dir):
+    ham.project.Project(project_dir).init()
+
+
+def project_create(project, name, args, **kwargs):
+    env = project._create(name, args)
     print '%s: %s' % (name, env)
 
 
@@ -76,10 +80,16 @@ parser_status.add_argument('server', nargs='?', default=None,
                            help='get info on an server')
 parser_status.set_defaults(func=project_status)
 
+parser_init = subparsers.add_parser(
+    'init', help='create a new ham project')
+parser_init.set_defaults(func=project_init)
+
 parser_create = subparsers.add_parser(
     'create', help='create a new environment')
 _add_per_build_args(parser_create)
 parser_create.set_defaults(func=project_create)
+parser_create.add_argument('args', nargs=argparse.REMAINDER,
+                           help='extra args for create')
 
 parser_build = subparsers.add_parser(
     'build', help='bring up the nodes in an environment')
@@ -111,6 +121,9 @@ parser_delete.set_defaults(func=project_delete)
 
 def main():
     args = parser.parse_args()
+    if args.func == project_init:
+        project_init(args.project_dir)
+        return
     project_d = imp.load_source('ham.project_d', os.path.join(
         args.project_dir, 'project.py'))
     project = project_d.Project(args.project_dir)

@@ -206,6 +206,7 @@ class Project(object):
     def __init__(self, root=PROJECT_ROOT):
         self.root = os.path.abspath(os.path.expanduser(root))
         self.root_envs = os.path.join(self.root, 'envs')
+        self.projectfile_path = os.path.join(self.root, 'project.py')
         self.load()
 
     def _load_environments(self):
@@ -217,6 +218,15 @@ class Project(object):
     def load(self):
         self._load_environments()
 
+    def init(self):
+        try:
+            os.makedirs(self.root)
+        except EnvironmentError as e:
+            if e.errno != errno.EEXIST:
+                raise
+        with open(self.projectfile_path, 'w') as f:
+            f.write(open(os.path.join(TEMPLATES, 'project.py')).read())
+
     def _create(self, name, extra_args):
         env = Environment(self, name)
         self.create(env, extra_args)
@@ -224,5 +234,5 @@ class Project(object):
         env.create_fabfile()
         return env
 
-    def create(self, env):
+    def create(self, env, extra_args):
         raise NotImplementedError()
