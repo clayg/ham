@@ -203,6 +203,11 @@ class Environment(object):
         server.save()
 
     def create_fabfile(self):
+        try:
+            os.makedirs(self.root)
+        except EnvironmentError as e:
+            if e.errno != errno.EEXIST:
+                raise
         with open(self.fabfile_path, 'w') as f:
             f.write(open(os.path.join(TEMPLATES, 'fabfile.py')).read())
 
@@ -229,7 +234,9 @@ class Project(object):
         self.workonfile_path = os.path.join(self.root_envs, '.workon')
         self.projectfile_path = os.path.join(self.root, 'project.py')
         self.workon_environment = ''
-        self.load()
+        if os.path.exists(self.root):
+            # on init we can't load yet
+            self.load()
 
     def _load_environments(self):
         self.environments = {}
@@ -271,6 +278,7 @@ class Project(object):
         except EnvironmentError as e:
             if e.errno != errno.EEXIST:
                 raise
+            raise exc.ProjectError('project in %r already exists!' % self.root)
         with open(self.projectfile_path, 'w') as f:
             f.write(open(os.path.join(TEMPLATES, 'project.py')).read())
 
@@ -280,6 +288,9 @@ class Project(object):
         env = Environment(self, name)
         self.create(env, extra_args)
         env = Environment(self, name)
+        if not env.servers:
+            raise exc.ProjectError(
+                "Environment did not create any servers!")
         env.create_fabfile()
         return env
 

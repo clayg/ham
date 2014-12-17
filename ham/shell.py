@@ -11,12 +11,19 @@ import functools
 
 err = functools.partial(print, file=sys.stderr)
 
-
 import ham
 
+
+def directory(string):
+    return os.path.abspath(os.path.expanduser(string))
+
+DEFAULT_PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT',
+                                      ham.project.PROJECT_ROOT )
 parser = argparse.ArgumentParser(description=__doc__.strip())
-parser.add_argument('-p', '--project-dir', default=ham.project.PROJECT_ROOT,
-                    help='the project config directory')
+parser.add_argument('-p', '--project-dir', type=directory,
+                    default=DEFAULT_PROJECT_ROOT,
+                    help='the project config directory, set '
+                    'HAM_PROJECT_ROOT in your bash environment')
 
 subparsers = parser.add_subparsers()
 
@@ -43,28 +50,31 @@ parser_list.set_defaults(func=project_list)
 # status
 
 
-def _env_status(project, name):
-    env = project.get_environment(name)
-    env.refresh()
-    for server in env.servers.values():
-        print(server)
-
-
-def _server_status(project, name, server_name):
-    env = project.get_environment(name)
+def _server_status(env, server_name):
     server = env.servers[server_name]
     server.refresh()
     print('ssh root@%s # %s' % (server.ip_address, server.admin_pass))
 
 
 def project_status(project, name=None, server=None, **kwargs):
-    key = name or project.workon_environment
-    if not key:
-        err('WARNING: not working on any environment!')
-        return project_list(project)
-    if server is not None:
-        return _server_status(project, name, server)
-    return _env_status(project, name)
+    env = None
+    if project.workon_environment:
+        try:
+            env = project.get_environment(None)
+        except ham.exc.ProjectLookupError:
+            if not name:
+                err('WARNING: not working on any environment!')
+                return project_list(project)
+        else:
+            if name in env.servers:
+                name, server = None, name
+    env = project.get_environment(name)
+    if server:
+        return _server_status(env, server)
+    env.refresh()
+    for server in env.servers.values():
+        print(server)
+
 
 parser_status = subparsers.add_parser(
     'status', help='status of environment')
@@ -181,8 +191,13 @@ def main(raw_args=sys.argv[1:]):
         raw_args.insert(sys.argv.index(unknown_args[0]) - 1, '--')
     args = parser.parse_args(raw_args)
     if args.func == project_init:
-        project_init(args.project_dir)
-        return
+        # special case init
+        try:
+            return project_init(args.project_dir)
+        except ham.exc.ProjectError as e:
+            return 'ERROR: %s' % e
+    if not os.path.exists(args.project_dir):
+        return 'ERROR: no ham project in %r' % args.project_dir
     project_d = imp.load_source('ham.project_d', os.path.join(
         args.project_dir, 'project.py'))
     project = project_d.Project(args.project_dir)
@@ -193,7 +208,7 @@ def main(raw_args=sys.argv[1:]):
         args.name = None
     try:
         return args.func(project=project, **vars(args))
-    except ham.exc.ProjectLookupError as e:
+    except ham.exc.ProjectError as e:
         return 'ERROR: %s' % e
 
 
