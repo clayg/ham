@@ -283,6 +283,8 @@ class Project(object):
             f.write(open(os.path.join(TEMPLATES, 'project.py')).read())
 
     def _create(self, name, extra_args):
+        if not name:
+            raise exc.ProjectError("You must provide an environment name")
         if name.startswith('.'):
             raise exc.ProjectError("Environment names can't start with a .")
         env = Environment(self, name)

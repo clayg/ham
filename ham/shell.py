@@ -18,7 +18,7 @@ def directory(string):
     return os.path.abspath(os.path.expanduser(string))
 
 DEFAULT_PROJECT_ROOT = os.environ.get('HAM_PROJECT_ROOT',
-                                      ham.project.PROJECT_ROOT )
+                                      ham.project.PROJECT_ROOT)
 parser = argparse.ArgumentParser(description=__doc__.strip())
 parser.add_argument('-p', '--project-dir', type=directory,
                     default=DEFAULT_PROJECT_ROOT,
@@ -88,6 +88,7 @@ parser_status.set_defaults(func=project_status)
 
 def project_init(project_dir):
     ham.project.Project(project_dir).init()
+    print('export HAM_PROJECT_ROOT={0}'.format(project_dir))
 
 parser_init = subparsers.add_parser(
     'init', help='create a new ham project')
@@ -191,7 +192,7 @@ def main(raw_args=sys.argv[1:]):
         raw_args.insert(sys.argv.index(unknown_args[0]) - 1, '--')
     args = parser.parse_args(raw_args)
     if args.func == project_init:
-        # special case init
+        # special case init because we can't load project dir yet
         try:
             return project_init(args.project_dir)
         except ham.exc.ProjectError as e:
