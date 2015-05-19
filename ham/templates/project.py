@@ -26,5 +26,14 @@ from fabric import api as fab
 
 
 @fab.task
+@fab.roles('all')
 def check():
     fab.run('hostname')
+
+
+@fab.task
+def roles():
+    for role, hosts in fab.env.roledefs.items():
+        print(role)
+        for host in hosts:
+            print('  {0}'.format(host))
